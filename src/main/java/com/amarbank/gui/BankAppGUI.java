@@ -9,7 +9,9 @@ import com.amarbank.LoanAccount;
 import com.amarbank.SavingsAccount;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -47,7 +49,6 @@ public class BankAppGUI extends JFrame {
 
     private JTable accountTable;
     private DefaultTableModel tableModel;
-    private JLabel statusLabel;
     private JLabel titleLabel;
 
     // custom themed chrome
@@ -55,9 +56,7 @@ public class BankAppGUI extends JFrame {
     private JPanel rootPanel;
     private JPanel contentPanel;
     private JPanel toolbarPanel;
-    private JPanel statusPanel;
     private JScrollPane tableScroll;
-    private ThemeSelectorButton themeSelector;
     private final java.util.List<JButton> actionButtons = new java.util.ArrayList<>();
 
     // theme state used for error recovery
@@ -92,7 +91,6 @@ public class BankAppGUI extends JFrame {
         contentPanel.add(buildHeader(), BorderLayout.NORTH);
         contentPanel.add(buildToolbar(), BorderLayout.WEST);
         contentPanel.add(buildTablePanel(), BorderLayout.CENTER);
-        contentPanel.add(buildStatusBar(), BorderLayout.SOUTH);
         rootPanel.add(contentPanel, BorderLayout.CENTER);
 
         new WindowResizer(this); // edge/corner resize on the undecorated frame
@@ -158,7 +156,7 @@ public class BankAppGUI extends JFrame {
         toolbarPanel.add(actionButton("Refresh List", new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 refreshTable();
-                setStatus("Account list refreshed.");
+                showInfo("Refreshed", "Account list refreshed.");
             }
         }));
 
@@ -166,7 +164,7 @@ public class BankAppGUI extends JFrame {
     }
 
     private JComponent buildTablePanel() {
-        String[] columns = {"Account No", "Type", "Holder Name", "Balance", "Special Attribute"};
+        String[] columns = {"Account No", "Type", "Holder Name", "Branch", "Phone", "Balance", "Account Status"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -174,29 +172,17 @@ public class BankAppGUI extends JFrame {
             }
         };
         accountTable = new JTable(tableModel);
-        accountTable.setRowHeight(24);
+        accountTable.setRowHeight(32);
+        accountTable.setShowVerticalLines(false);
+        accountTable.setShowHorizontalLines(true);
+        accountTable.setIntercellSpacing(new Dimension(0, 1));
+        accountTable.setFillsViewportHeight(true);
+        accountTable.setAutoCreateRowSorter(true);
         accountTable.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 12));
 
         tableScroll = new JScrollPane(accountTable);
         tableScroll.setBorder(BorderFactory.createTitledBorder("Accounts"));
         return tableScroll;
-    }
-
-    private JComponent buildStatusBar() {
-        statusPanel = new JPanel(new BorderLayout());
-        statusPanel.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 8));
-
-        statusLabel = new JLabel("Ready.");
-        statusPanel.add(statusLabel, BorderLayout.CENTER);
-
-        // The theme selector lives in the bottom-right, as a palette icon.
-        themeSelector = new ThemeSelectorButton(currentTheme, this::applyTheme);
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        right.setOpaque(false);
-        right.add(themeSelector);
-        statusPanel.add(right, BorderLayout.EAST);
-
-        return statusPanel;
     }
 
     private JButton actionButton(String text, ActionListener listener) {
@@ -251,7 +237,7 @@ public class BankAppGUI extends JFrame {
             // period of real repaints. A broken Look&Feel throws during those
             // repaints first, so lastGoodTheme is not advanced prematurely.
             scheduleThemePromotion(theme);
-            setStatus("Theme changed to " + theme.getLabel() + ".");
+            showInfo("Theme", "Theme changed to " + theme.getLabel() + ".");
         } catch (Throwable e) {
             revertTheme(previousGood, theme, describeThrowable(e));
         }
@@ -259,7 +245,7 @@ public class BankAppGUI extends JFrame {
 
     /**
      * Recolours every custom-painted component (title bar, window border,
-     * side panel, status bar, table, header, theme icon) to match the theme
+     * side panel, table, header) to match the theme
      * palette, so the whole window - not just the Swing widgets - is themed.
      */
     private void applyChrome(SwingTheme theme) {
@@ -272,30 +258,62 @@ public class BankAppGUI extends JFrame {
         titleBar.applyFont(theme.chromeFont(Font.BOLD, 14f));
 
         toolbarPanel.setBackground(p.background());
-        statusPanel.setBackground(p.surface());
-        statusLabel.setForeground(p.foreground());
-        statusLabel.setFont(theme.chromeFont(Font.PLAIN, 12f));
 
         titleLabel.setForeground(p.accent());
         titleLabel.setFont(theme.headingFont(Font.BOLD, 26f));
 
-        accountTable.setBackground(p.background());
-        accountTable.setForeground(p.foreground());
-        accountTable.setGridColor(p.surface());
-        accountTable.getTableHeader().setBackground(p.surface());
-        accountTable.getTableHeader().setForeground(p.accent());
-        accountTable.getTableHeader().setFont(theme.chromeFont(Font.BOLD, 12f));
-        accountTable.setSelectionBackground(p.accent());
-        accountTable.setSelectionForeground(p.accentText());
-        tableScroll.getViewport().setBackground(p.background());
-        tableScroll.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(p.accent()), "Accounts", 0, 0,
-                theme.chromeFont(Font.BOLD, 12f), p.accent()));
-
-        themeSelector.applyPalette(p);
-        themeSelector.setSelected(theme);
+        applyTableChrome(theme);
 
         repaint();
+    }
+
+    /** Gives the accounts grid a stronger cyberpunk dashboard treatment. */
+    private void applyTableChrome(SwingTheme theme) {
+        SwingTheme.Palette p = theme.palette();
+        Color rowA = theme == SwingTheme.CYBERPUNK ? new Color(0x0A0A18) : p.background();
+        Color rowB = theme == SwingTheme.CYBERPUNK ? new Color(0x111128) : p.surface();
+        Color grid = theme == SwingTheme.CYBERPUNK ? new Color(0x321A55) : p.surface();
+        Color selected = theme == SwingTheme.CYBERPUNK ? new Color(0x4A103A) : p.accent();
+
+        accountTable.setBackground(rowA);
+        accountTable.setForeground(p.foreground());
+        accountTable.setGridColor(grid);
+        accountTable.setSelectionBackground(selected);
+        accountTable.setSelectionForeground(theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.accentText());
+        accountTable.setFont(theme.chromeFont(Font.PLAIN, 13f));
+        accountTable.setRowHeight(theme == SwingTheme.CYBERPUNK ? 34 : 28);
+
+        JTableHeader header = accountTable.getTableHeader();
+        header.setBackground(theme == SwingTheme.CYBERPUNK ? new Color(0x1C0C30) : p.surface());
+        header.setForeground(theme == SwingTheme.CYBERPUNK ? new Color(0xFF2A6D) : p.accent());
+        header.setFont(theme.headingFont(Font.BOLD, 12f));
+        header.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, p.accent()));
+
+        accountTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                           boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
+                setHorizontalAlignment(column == 2 || column == 3 ? SwingConstants.LEFT : SwingConstants.CENTER);
+                if (!isSelected) {
+                    c.setBackground(row % 2 == 0 ? rowA : rowB);
+                    c.setForeground(column == 6 && theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.foreground());
+                } else {
+                    c.setBackground(selected);
+                    c.setForeground(theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.accentText());
+                }
+                setFont(theme.chromeFont(column == 0 || column == 6 ? Font.BOLD : Font.PLAIN, 13f));
+                return c;
+            }
+        });
+
+        tableScroll.getViewport().setBackground(rowA);
+        tableScroll.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(p.accent(), 2),
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createEmptyBorder(8, 8, 8, 8), "NEON ACCOUNT LEDGER", 0, 0,
+                        theme.headingFont(Font.BOLD, 13f), p.accent())));
     }
 
     /** After a brief delay with no paint failures, accept the theme as safe. */
@@ -365,9 +383,6 @@ public class BankAppGUI extends JFrame {
         } catch (Throwable ignored) {
             // updating the tree should be safe now; ignore if not
         }
-        statusLabel.setForeground(currentTheme.palette().danger());
-        statusLabel.setText("Theme '" + broken.getLabel() + "' is not supported here; reverted to "
-                + restored.getLabel() + ".");
         // Show the dialog after we have fully unwound from the failing paint
         // dispatch, so we never start a nested modal loop inside the handler.
         final String restoredLabel = restored.getLabel();
@@ -418,7 +433,7 @@ public class BankAppGUI extends JFrame {
             double balance = parseAmount(opening.getText());
             Account account = bank.openAccount((String) type.getSelectedItem(), customer, branchName, phoneNum, balance);
             refreshTable();
-            setStatus("Account created: " + account.getAccountNumber());
+            showInfo("Account Created", "Account created: " + account.getAccountNumber());
         } catch (BankException | NumberFormatException e) {
             showError(e.getMessage());
         }
@@ -440,7 +455,7 @@ public class BankAppGUI extends JFrame {
             double value = parseAmount(amount.getText());
             bank.deposit(number, value);
             refreshTable();
-            setStatus(String.format("Deposited %.2f. New balance: %.2f",
+            showInfo("Deposit Complete", String.format("Deposited %.2f.%nNew balance: %.2f",
                     value, bank.requireAccount(number).getBalance()));
         } catch (BankException | NumberFormatException e) {
             showError(e.getMessage());
@@ -463,7 +478,7 @@ public class BankAppGUI extends JFrame {
             double value = parseAmount(amount.getText());
             bank.withdraw(number, value);
             refreshTable();
-            setStatus(String.format("Withdrew %.2f. New balance: %.2f",
+            showInfo("Withdrawal Complete", String.format("Withdrew %.2f.%nNew balance: %.2f",
                     value, bank.requireAccount(number).getBalance()));
         } catch (BankException | NumberFormatException e) {
             showError(e.getMessage());
@@ -489,7 +504,7 @@ public class BankAppGUI extends JFrame {
             double value = parseAmount(amount.getText());
             bank.transfer(fromNumber, toNumber, value);
             refreshTable();
-            setStatus(String.format("Transferred %.2f from %s to %s.", value, fromNumber, toNumber));
+            showInfo("Transfer Complete", String.format("Transferred %.2f from %s to %s.", value, fromNumber, toNumber));
         } catch (BankException | NumberFormatException e) {
             showError(e.getMessage());
         }
@@ -513,7 +528,6 @@ public class BankAppGUI extends JFrame {
                     acc.getAccountNumber(), acc.getType(), acc.getAccountHolderName(),
                     acc.getBranch(), acc.getPhone(), acc.getBalance(), acc.withdrawableBalance());
             MessageDialog.show(this, "Balance", message, MessageDialog.Kind.INFO);
-            setStatus(String.format("%s balance: %.2f", acc.getAccountNumber(), acc.getBalance()));
         } catch (BankException e) {
             showError(e.getMessage());
         }
@@ -541,7 +555,7 @@ public class BankAppGUI extends JFrame {
             String number = accountNumberOf(account);
             bank.updateAccountDetails(number, branch.getText(), phone.getText());
             refreshTable();
-            setStatus("Updated details for " + number + ".");
+            showInfo("Details Updated", "Updated details for " + number + ".");
         } catch (BankException e) {
             showError(e.getMessage());
         }
@@ -579,7 +593,7 @@ public class BankAppGUI extends JFrame {
         try {
             bank.deleteAccount(number);
             refreshTable();
-            setStatus("Closed account " + number + ".");
+            showInfo("Account Closed", "Closed account " + number + ".");
         } catch (BankException e) {
             showError(e.getMessage());
         }
@@ -595,6 +609,8 @@ public class BankAppGUI extends JFrame {
                     account.getAccountNumber(),
                     account.getType(),
                     account.getAccountHolderName(),
+                    account.getBranch(),
+                    account.getPhone(),
                     String.format("%.2f", account.getBalance()),
                     describeSpecialAttribute(account)
             });
@@ -636,7 +652,8 @@ public class BankAppGUI extends JFrame {
         if (row < 0) {
             return;
         }
-        String number = String.valueOf(tableModel.getValueAt(row, 0));
+        int modelRow = accountTable.convertRowIndexToModel(row);
+        String number = String.valueOf(tableModel.getValueAt(modelRow, 0));
         for (int i = 0; i < combo.getItemCount(); i++) {
             if (combo.getItemAt(i).startsWith(number + " ")) {
                 combo.setSelectedIndex(i);
@@ -673,14 +690,11 @@ public class BankAppGUI extends JFrame {
         return message;
     }
 
-    private void setStatus(String message) {
-        statusLabel.setForeground(currentTheme.palette().foreground());
-        statusLabel.setText(message);
+    private void showInfo(String title, String message) {
+        MessageDialog.show(this, title, message, MessageDialog.Kind.INFO);
     }
 
     private void showError(String message) {
-        statusLabel.setForeground(currentTheme.palette().danger());
-        statusLabel.setText("Error: " + message.replace('\n', ' '));
         MessageDialog.show(this, "Error", message, MessageDialog.Kind.ERROR);
     }
 
