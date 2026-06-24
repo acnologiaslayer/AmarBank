@@ -1,5 +1,6 @@
 /target/
 /.vscode/
+/.tools/
 *.class
 *.log
 /data/*.db
