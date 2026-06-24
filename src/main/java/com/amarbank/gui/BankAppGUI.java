@@ -528,6 +528,12 @@ public class BankAppGUI extends JFrame {
         JTextField branch = form.addTextField("New branch:");
         JTextField phone = form.addTextField("New phone:");
         preselectAccount(account);
+        populateContactFields(account, branch, phone);
+        account.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                populateContactFields(account, branch, phone);
+            }
+        });
         if (!form.showDialog()) {
             return;
         }
@@ -538,6 +544,18 @@ public class BankAppGUI extends JFrame {
             setStatus("Updated details for " + number + ".");
         } catch (BankException e) {
             showError(e.getMessage());
+        }
+    }
+
+    /** Fills editable contact fields with the currently selected account's existing details. */
+    private void populateContactFields(JComboBox<String> account, JTextField branch, JTextField phone) {
+        try {
+            Account selected = bank.requireAccount(accountNumberOf(account));
+            branch.setText(selected.getBranch());
+            phone.setText(selected.getPhone());
+        } catch (BankException e) {
+            branch.setText("");
+            phone.setText("");
         }
     }
 
