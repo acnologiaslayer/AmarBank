@@ -85,8 +85,8 @@ public class BankManagement {
                             rs.getString("branch"),
                             rs.getString("phone"),
                             rs.getDouble("balance"),
-                            rs.getDouble("loan_limit"),
-                            rs.getDouble("amount_due")
+                            nullableDouble(rs, "loan_limit"),
+                            nullableDouble(rs, "amount_due")
                     );
                 }
             }
@@ -133,8 +133,8 @@ public class BankManagement {
                         rs.getString("branch"),
                         rs.getString("phone"),
                         rs.getDouble("balance"),
-                        rs.getDouble("loan_limit"),
-                        rs.getDouble("amount_due")
+                        nullableDouble(rs, "loan_limit"),
+                        nullableDouble(rs, "amount_due")
                 ));
             }
         } catch (SQLException e) {
@@ -158,14 +158,21 @@ public class BankManagement {
         return DriverManager.getConnection(url);
     }
 
-    private Account toAccount(String accountNumber, String type, String name, String branch, String phone, double balance, double loanLimit, double amountDue)
+    private Account toAccount(String accountNumber, String type, String name, String branch, String phone, double balance, Double loanLimit, Double amountDue)
             throws DataStoreException {
         if ("SAVINGS".equalsIgnoreCase(type)) {
             return new SavingsAccount(accountNumber, type, name, branch, phone, balance, 0.01);
         } else if ("LOAN".equalsIgnoreCase(type)) {
-            return new LoanAccount(accountNumber, type, name, branch, phone, balance, loanLimit, amountDue);
+            double restoredAmountDue = amountDue == null ? Math.max(0.0, balance) : amountDue;
+            double restoredLimit = loanLimit == null ? Math.max(10000.0, restoredAmountDue) : loanLimit;
+            return new LoanAccount(accountNumber, type, name, branch, phone, balance, restoredLimit, restoredAmountDue);
         } else {
             throw new DataStoreException("Unknown account type: " + type, null);
         }
+    }
+
+    private Double nullableDouble(ResultSet rs, String column) throws SQLException {
+        double value = rs.getDouble(column);
+        return rs.wasNull() ? null : value;
     }
 }

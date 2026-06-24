@@ -36,7 +36,10 @@ public class BankOperations {
 
         Account account = switch (type) {
             case "SAVINGS" -> new SavingsAccount(number, type, name, branch, phone, openingBalance, 0.01);
-            case "LOAN" -> new LoanAccount(number, type, name, branch, phone, openingBalance, 10000.0, 0.0);
+            // For a loan account, the opening amount is the loan principal the bank disburses.
+            // It is therefore available as account balance and also recorded as amount due.
+            case "LOAN" -> new LoanAccount(number, type, name, branch, phone,
+                    openingBalance, Math.max(10000.0, openingBalance), openingBalance);
             default -> throw new BankException("Unknown account type: " + type);
         };
 

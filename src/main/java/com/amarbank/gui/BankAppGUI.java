@@ -398,7 +398,7 @@ public class BankAppGUI extends JFrame {
         JTextField name = form.addTextField("Customer name:");
         JTextField branch = form.addTextField("Branch:");
         JTextField phone = form.addTextField("Phone:");
-        JTextField opening = form.addTextField("Opening balance:");
+        JTextField opening = form.addTextField("Opening balance / loan principal:");
         if (!form.showDialog()) {
             return;
         }

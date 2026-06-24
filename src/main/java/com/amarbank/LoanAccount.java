@@ -28,13 +28,14 @@ public class LoanAccount extends Account {
     @Override
     public void deposit(double amount) throws BankException {
         validatePositiveAmount(amount);
-        double remainingPayment = amount;
-        if (amountDue > 0) {
-            double paidToLoan = Math.min(amountDue, remainingPayment);
-            amountDue -= paidToLoan;
-            remainingPayment -= paidToLoan;
+        if (amountDue <= 0) {
+            throw new BankException("This loan is already fully repaid.");
         }
-        setBalance(getBalance() + remainingPayment);
+        if (amount > amountDue) {
+            throw new BankException("Payment exceeds remaining loan due. Remaining due: "
+                    + String.format("%.2f", amountDue));
+        }
+        amountDue -= amount;
     }
 
     @Override
@@ -45,6 +46,6 @@ public class LoanAccount extends Account {
                     + String.format("%.2f", withdrawableBalance()));
         }
         amountDue += amount;
-        setBalance(getBalance() - amount);
+        setBalance(getBalance() + amount);
     }
 }
