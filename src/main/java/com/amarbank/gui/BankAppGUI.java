@@ -41,7 +41,7 @@ public class BankAppGUI extends JFrame {
     private static final String[] ACCOUNT_TYPES = {"SAVINGS", "LOAN"};
 
     /** Pure-Java theme used at startup and as the recovery fallback. */
-    private static final SwingTheme DEFAULT_THEME = SwingTheme.NIMBUS;
+    private static final SwingTheme DEFAULT_THEME = SwingTheme.CYBERPUNK;
 
     private final BankOperations bank;
 
@@ -509,9 +509,9 @@ public class BankAppGUI extends JFrame {
             String number = accountNumberOf(account);
             Account acc = bank.requireAccount(number);
             String message = String.format(
-                    "Account: %s%nType: %s%nCustomer: %s%nBalance: %.2f%nWithdrawable now: %.2f",
+                    "Account: %s%nType: %s%nCustomer: %s%nBranch: %s%nPhone: %s%nBalance: %.2f%nWithdrawable now: %.2f",
                     acc.getAccountNumber(), acc.getType(), acc.getAccountHolderName(),
-                    acc.getBalance(), acc.withdrawableBalance());
+                    acc.getBranch(), acc.getPhone(), acc.getBalance(), acc.withdrawableBalance());
             MessageDialog.show(this, "Balance", message, MessageDialog.Kind.INFO);
             setStatus(String.format("%s balance: %.2f", acc.getAccountNumber(), acc.getBalance()));
         } catch (BankException e) {
