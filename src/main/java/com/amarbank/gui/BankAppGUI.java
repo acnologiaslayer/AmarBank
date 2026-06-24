@@ -57,6 +57,7 @@ public class BankAppGUI extends JFrame {
     private JPanel contentPanel;
     private JPanel toolbarPanel;
     private JScrollPane tableScroll;
+    private ThemeSelectorButton themeSelector;
     private final java.util.List<JButton> actionButtons = new java.util.ArrayList<>();
 
     // theme state used for error recovery
@@ -106,10 +107,26 @@ public class BankAppGUI extends JFrame {
     // ---------- layout builders ----------
 
     private JComponent buildHeader() {
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+
         titleLabel = new JLabel("AMAR BANK", SwingConstants.CENTER);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 24));
         titleLabel.setBorder(BorderFactory.createEmptyBorder(12, 0, 12, 0));
-        return titleLabel;
+        header.add(titleLabel, BorderLayout.CENTER);
+
+        themeSelector = new ThemeSelectorButton(currentTheme, this::applyTheme);
+        JPanel selectorWrap = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        selectorWrap.setOpaque(false);
+        selectorWrap.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 10));
+        selectorWrap.add(themeSelector);
+        header.add(selectorWrap, BorderLayout.EAST);
+
+        // Invisible spacer keeps the centered title visually centered despite the selector on the right.
+        Box leftSpacer = Box.createHorizontalBox();
+        leftSpacer.setPreferredSize(new Dimension(46, 1));
+        header.add(leftSpacer, BorderLayout.WEST);
+        return header;
     }
 
     private JComponent buildToolbar() {
@@ -261,6 +278,8 @@ public class BankAppGUI extends JFrame {
 
         titleLabel.setForeground(p.accent());
         titleLabel.setFont(theme.headingFont(Font.BOLD, 26f));
+        themeSelector.applyPalette(p);
+        themeSelector.setSelected(theme);
 
         applyTableChrome(theme);
 
