@@ -3,5 +3,9 @@
 /.tools/
 *.class
 *.log
+# Runtime data (generated on first run)
+/data/*.csv
+/data/*.csv.tmp
 /data/*.db
 /data/*.db-*
+

@@ -1,84 +1,123 @@
 package com.amarbank.gui;
 
-import com.amarbank.exception.BankException;
-import com.amarbank.exception.DataStoreException;
-import com.amarbank.Account;
-import com.amarbank.BankManagement;
-import com.amarbank.BankOperations;
-import com.amarbank.LoanAccount;
-import com.amarbank.SavingsAccount;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.Window;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.List;
 
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.nio.file.Path;
-import java.util.List;
+
+import com.amarbank.Account;
+import com.amarbank.BankManagement;
+import com.amarbank.LoanAccount;
+import com.amarbank.SavingsAccount;
+import com.amarbank.Validators;
+import com.amarbank.exception.BankException;
 
 /**
- * Java Swing front-end for the banking application.
+ * Java Swing front-end for Amar Bank.
  *
- * Built in the same style as the Playground DivisionEngineGUI lesson:
- *  - extends JFrame,
- *  - builds the layout in the constructor,
- *  - wires buttons with anonymous ActionListeners,
- *  - keeps all business logic in the service layer (BankOperations).
+ * <p>The interface is a {@link JTabbedPane} with the three panels required by
+ * Section 3 of the assignment:</p>
+ * <ol>
+ *   <li><b>Account Management</b> - inputs for name, phone, branch and initial
+ *       balance / loan limit, a {@link JComboBox} to pick Savings vs Loan, and
+ *       buttons to Open Account, Update Phone Number and Shift Branch.</li>
+ *   <li><b>Transactions</b> - source / destination account and amount fields
+ *       with Deposit, Withdraw and Transfer buttons.</li>
+ *   <li><b>Accounts (Display)</b> - a searchable {@link JTable} roster plus a
+ *       per-account summary view.</li>
+ * </ol>
  *
- * Each action opens its own modal pop-up form (FormDialog). A Theme menu
- * lets the user switch the Swing Look&Feel at runtime.
- *
- * Theme switching is fault-tolerant: some Look&Feels (notably the native
- * GTK "System" L&F) can throw asynchronously during painting on certain
- * JVMs. A {@link SafeEventQueue} catches those uncaught event-thread
- * errors so the application reverts to the previous working theme and
- * shows a clear message instead of crashing.
+ * <p>Every field is validated with the {@link Validators} regex rules before a
+ * submission is processed; a failure raises a {@link JOptionPane} alert, exactly
+ * as the specification requires. The window keeps the project's themed chrome
+ * (custom title bar, theme selector and fault-tolerant Look&amp;Feel switching).</p>
  */
 public class BankAppGUI extends JFrame {
 
-    private static final String[] ACCOUNT_TYPES = {"SAVINGS", "LOAN"};
-
-    /** Pure-Java theme used at startup and as the recovery fallback. */
+    private static final String[] ACCOUNT_TYPES = {SavingsAccount.TYPE, LoanAccount.TYPE};
     private static final SwingTheme DEFAULT_THEME = SwingTheme.CYBERPUNK;
 
-    private final BankOperations bank;
+    private final BankManagement bank;
 
-    private JTable accountTable;
-    private DefaultTableModel tableModel;
-    private JLabel titleLabel;
-
-    // custom themed chrome
-    private TitleBar titleBar;
+    // ----- themed chrome -----
     private JPanel rootPanel;
     private JPanel contentPanel;
-    private JPanel toolbarPanel;
-    private JScrollPane tableScroll;
+    private TitleBar titleBar;
+    private JLabel titleLabel;
     private ThemeSelectorButton themeSelector;
-    private final java.util.List<JButton> actionButtons = new java.util.ArrayList<>();
+    private JTabbedPane tabs;
 
-    // theme state used for error recovery
+    // ----- account management tab -----
+    private JComboBox<String> cboType;
+    private JTextField txtName;
+    private JTextField txtPhone;
+    private JTextField txtBranch;
+    private JTextField txtAmount;
+    private JLabel lblAmount;
+    private JTextField txtManageAccountNo;
+
+    // ----- transaction tab -----
+    private JTextField txtSource;
+    private JTextField txtDestination;
+    private JTextField txtTxnAmount;
+
+    // ----- display tab -----
+    private JTextField txtSearch;
+    private JTable accountTable;
+    private DefaultTableModel tableModel;
+    private JScrollPane tableScroll;
+    private JTextArea txtSummary;
+
+    private final List<JLabel> formLabels = new ArrayList<>();
+
+    // ----- theme state (for fault-tolerant switching) -----
     private SwingTheme currentTheme = DEFAULT_THEME;
     private SwingTheme lastGoodTheme = DEFAULT_THEME;
     private boolean recoveringTheme = false;
     private Timer promoteTimer;
 
-    public BankAppGUI(BankOperations bank) {
+    public BankAppGUI(BankManagement bank) {
         this.bank = bank;
 
         installDefaultTheme();
 
         setTitle("Amar Bank - Banking Application");
-        setSize(820, 560);
-        setMinimumSize(new Dimension(640, 440));
+        setSize(900, 620);
+        setMinimumSize(new Dimension(760, 560));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
-        // Undecorated so we can paint the whole window (title bar + border)
-        // in the active theme instead of the native OS chrome.
-        setUndecorated(true);
+        setUndecorated(true); // we paint our own themed chrome
 
         rootPanel = new JPanel(new BorderLayout());
         rootPanel.setBorder(BorderFactory.createLineBorder(currentTheme.palette().accent(), 1));
@@ -88,23 +127,22 @@ public class BankAppGUI extends JFrame {
         rootPanel.add(titleBar, BorderLayout.NORTH);
 
         contentPanel = new JPanel(new BorderLayout(10, 10));
-        contentPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
         contentPanel.add(buildHeader(), BorderLayout.NORTH);
-        contentPanel.add(buildToolbar(), BorderLayout.WEST);
-        contentPanel.add(buildTablePanel(), BorderLayout.CENTER);
+        contentPanel.add(buildTabs(), BorderLayout.CENTER);
         rootPanel.add(contentPanel, BorderLayout.CENTER);
 
-        new WindowResizer(this); // edge/corner resize on the undecorated frame
+        new WindowResizer(this);
 
-        refreshTable();
-        applyChrome(currentTheme); // colour all custom components for the theme
+        refreshTable(bank.listAccounts());
+        applyChrome(currentTheme);
 
-        // Catch any uncaught event-thread error (e.g. a Look&Feel that fails
-        // to paint) and route it through our recovery/reporting handler.
         SafeEventQueue.install(this::handleEventThreadError);
     }
 
-    // ---------- layout builders ----------
+    // ========================================================================
+    // Layout
+    // ========================================================================
 
     private JComponent buildHeader() {
         JPanel header = new JPanel(new BorderLayout());
@@ -112,130 +150,565 @@ public class BankAppGUI extends JFrame {
 
         titleLabel = new JLabel("AMAR BANK", SwingConstants.CENTER);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 24));
-        titleLabel.setBorder(BorderFactory.createEmptyBorder(12, 0, 12, 0));
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
         header.add(titleLabel, BorderLayout.CENTER);
 
         themeSelector = new ThemeSelectorButton(currentTheme, this::applyTheme);
-        JPanel selectorWrap = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        JPanel selectorWrap = new JPanel();
         selectorWrap.setOpaque(false);
-        selectorWrap.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 10));
         selectorWrap.add(themeSelector);
         header.add(selectorWrap, BorderLayout.EAST);
 
-        // Invisible spacer keeps the centered title visually centered despite the selector on the right.
         Box leftSpacer = Box.createHorizontalBox();
         leftSpacer.setPreferredSize(new Dimension(46, 1));
         header.add(leftSpacer, BorderLayout.WEST);
         return header;
     }
 
-    private JComponent buildToolbar() {
-        toolbarPanel = new JPanel();
-        toolbarPanel.setLayout(new BoxLayout(toolbarPanel, BoxLayout.Y_AXIS));
-        toolbarPanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
-
-        toolbarPanel.add(actionButton("Open Account...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                openAccount();
-            }
-        }));
-        toolbarPanel.add(actionButton("Deposit...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                deposit();
-            }
-        }));
-        toolbarPanel.add(actionButton("Withdraw...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                withdraw();
-            }
-        }));
-        toolbarPanel.add(actionButton("Transfer...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                transfer();
-            }
-        }));
-        toolbarPanel.add(actionButton("Check Balance...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                checkBalance();
-            }
-        }));
-        toolbarPanel.add(actionButton("Update Contact...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                updateContact();
-            }
-        }));
-        toolbarPanel.add(actionButton("Close Account...", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                closeAccount();
-            }
-        }));
-        toolbarPanel.add(Box.createVerticalStrut(10));
-        toolbarPanel.add(actionButton("Refresh List", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                refreshTable();
-                showInfo("Refreshed", "Account list refreshed.");
-            }
-        }));
-
-        return toolbarPanel;
+    private JComponent buildTabs() {
+        tabs = new JTabbedPane();
+        tabs.addTab("Account Management", buildManagementTab());
+        tabs.addTab("Transactions", buildTransactionTab());
+        tabs.addTab("Accounts", buildDisplayTab());
+        return tabs;
     }
 
-    private JComponent buildTablePanel() {
-        String[] columns = {"Account No", "Type", "Holder Name", "Branch", "Phone", "Balance", "Account Status"};
+    // ---- Tab 1: Account Management ----------------------------------------
+
+    private JComponent buildManagementTab() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        GridBagConstraints g = baseConstraints();
+
+        cboType = new JComboBox<>(ACCOUNT_TYPES);
+        addField(panel, g, 0, "Account type:", cboType);
+
+        txtName = new JTextField(20);
+        addField(panel, g, 1, "Holder name (UPPER CASE):", txtName);
+
+        txtPhone = new JTextField(20);
+        addField(panel, g, 2, "Phone (e.g. 01712345678):", txtPhone);
+
+        txtBranch = new JTextField(20);
+        addField(panel, g, 3, "Branch:", txtBranch);
+
+        txtAmount = new JTextField(20);
+        lblAmount = addField(panel, g, 4, "Initial balance:", txtAmount);
+
+        // The amount label tracks the selected account type.
+        cboType.addActionListener(e -> lblAmount.setText(
+                LoanAccount.TYPE.equals(cboType.getSelectedItem()) ? "Loan limit:" : "Initial balance:"));
+
+        // Open Account spans its own row of actions.
+        JButton openButton = new JButton("Open Account");
+        openButton.addActionListener(e -> openAccount());
+        addButtonRow(panel, g, 5, openButton);
+
+        addSeparatorLabel(panel, g, 6,
+                "Modify an existing account (uses the phone / branch fields above):");
+
+        txtManageAccountNo = new JTextField(20);
+        addField(panel, g, 7, "Account number (AMB-XXXXX):", txtManageAccountNo);
+
+        JButton updatePhoneButton = new JButton("Update Phone Number");
+        updatePhoneButton.addActionListener(e -> updatePhone());
+        JButton shiftBranchButton = new JButton("Shift Branch");
+        shiftBranchButton.addActionListener(e -> shiftBranch());
+        addButtonRow(panel, g, 8, updatePhoneButton, shiftBranchButton);
+
+        // push everything to the top
+        g.gridx = 0;
+        g.gridy = 9;
+        g.weighty = 1;
+        g.gridwidth = 2;
+        panel.add(Box.createGlue(), g);
+        return wrapScroll(panel);
+    }
+
+    // ---- Tab 2: Transactions ----------------------------------------------
+
+    private JComponent buildTransactionTab() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        GridBagConstraints g = baseConstraints();
+
+        txtSource = new JTextField(20);
+        addField(panel, g, 0, "Source account (AMB-XXXXX):", txtSource);
+
+        txtDestination = new JTextField(20);
+        addField(panel, g, 1, "Destination account (transfer only):", txtDestination);
+
+        txtTxnAmount = new JTextField(20);
+        addField(panel, g, 2, "Amount:", txtTxnAmount);
+
+        JButton depositButton = new JButton("Deposit");
+        depositButton.addActionListener(e -> deposit());
+        JButton withdrawButton = new JButton("Withdraw");
+        withdrawButton.addActionListener(e -> withdraw());
+        JButton transferButton = new JButton("Transfer");
+        transferButton.addActionListener(e -> transfer());
+        addButtonRow(panel, g, 3, depositButton, withdrawButton, transferButton);
+
+        addSeparatorLabel(panel, g, 4,
+                "Deposit/Withdraw use the source account. Transfer moves funds "
+                        + "from source to destination.");
+
+        g.gridx = 0;
+        g.gridy = 5;
+        g.weighty = 1;
+        g.gridwidth = 2;
+        panel.add(Box.createGlue(), g);
+        return wrapScroll(panel);
+    }
+
+    // ---- Tab 3: Display ---------------------------------------------------
+
+    private JComponent buildDisplayTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+
+        // Search bar
+        JPanel searchBar = new JPanel(new BorderLayout(6, 0));
+        searchBar.setOpaque(false);
+        JLabel searchLabel = new JLabel("Search: ");
+        formLabels.add(searchLabel);
+        searchBar.add(searchLabel, BorderLayout.WEST);
+        txtSearch = new JTextField();
+        txtSearch.addActionListener(e -> doSearch());
+        searchBar.add(txtSearch, BorderLayout.CENTER);
+
+        JPanel searchButtons = new JPanel();
+        searchButtons.setOpaque(false);
+        JButton searchButton = new JButton("Search");
+        searchButton.addActionListener(e -> doSearch());
+        JButton clearButton = new JButton("Show All");
+        clearButton.addActionListener(e -> {
+            txtSearch.setText("");
+            refreshTable(bank.listAccounts());
+        });
+        JButton summaryButton = new JButton("View Summary");
+        summaryButton.addActionListener(e -> showSelectedSummary());
+        searchButtons.add(searchButton);
+        searchButtons.add(clearButton);
+        searchButtons.add(summaryButton);
+        searchBar.add(searchButtons, BorderLayout.EAST);
+        panel.add(searchBar, BorderLayout.NORTH);
+
+        // Roster table
+        String[] columns = {"Account No", "Type", "Holder Name", "Branch", "Phone", "Balance", "Loan Limit", "Amount Due"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false; // read-only display
+                return false;
             }
         };
         accountTable = new JTable(tableModel);
-        accountTable.setRowHeight(32);
-        accountTable.setShowVerticalLines(false);
-        accountTable.setShowHorizontalLines(true);
-        accountTable.setIntercellSpacing(new Dimension(0, 1));
+        accountTable.setRowHeight(28);
         accountTable.setFillsViewportHeight(true);
         accountTable.setAutoCreateRowSorter(true);
-        accountTable.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 12));
-
+        accountTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateSummaryForSelection();
+            }
+        });
         tableScroll = new JScrollPane(accountTable);
-        tableScroll.setBorder(BorderFactory.createTitledBorder("Accounts"));
-        return tableScroll;
+        tableScroll.setBorder(BorderFactory.createTitledBorder("Account Roster"));
+        panel.add(tableScroll, BorderLayout.CENTER);
+
+        // Summary area
+        txtSummary = new JTextArea(6, 20);
+        txtSummary.setEditable(false);
+        txtSummary.setLineWrap(true);
+        txtSummary.setWrapStyleWord(true);
+        txtSummary.setText("Select an account to see its summary, or use the search box above.");
+        JScrollPane summaryScroll = new JScrollPane(txtSummary);
+        summaryScroll.setBorder(BorderFactory.createTitledBorder("Account Summary"));
+        summaryScroll.setPreferredSize(new Dimension(10, 130));
+        panel.add(summaryScroll, BorderLayout.SOUTH);
+
+        return panel;
     }
 
-    private JButton actionButton(String text, ActionListener listener) {
-        JButton button = new JButton(text);
-        button.setAlignmentX(Component.LEFT_ALIGNMENT);
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
-        button.addActionListener(listener);
-        actionButtons.add(button);
-        return button;
+    // ========================================================================
+    // Form helpers
+    // ========================================================================
+
+    private GridBagConstraints baseConstraints() {
+        GridBagConstraints g = new GridBagConstraints();
+        g.insets = new Insets(6, 6, 6, 6);
+        g.anchor = GridBagConstraints.WEST;
+        return g;
     }
 
-    // ---------- theme handling ----------
+    private JLabel addField(JPanel panel, GridBagConstraints g, int row, String label, JComponent field) {
+        g.gridx = 0;
+        g.gridy = row;
+        g.weightx = 0;
+        g.gridwidth = 1;
+        g.fill = GridBagConstraints.NONE;
+        JLabel jLabel = new JLabel(label);
+        formLabels.add(jLabel);
+        panel.add(jLabel, g);
 
-    /** Applies the default theme at startup, with a hard fallback chain. */
+        g.gridx = 1;
+        g.weightx = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(field, g);
+        return jLabel;
+    }
+
+    private void addButtonRow(JPanel panel, GridBagConstraints g, int row, JButton... buttons) {
+        JPanel bar = new JPanel();
+        bar.setOpaque(false);
+        bar.setLayout(new BoxLayout(bar, BoxLayout.X_AXIS));
+        for (int i = 0; i < buttons.length; i++) {
+            bar.add(buttons[i]);
+            if (i < buttons.length - 1) {
+                bar.add(Box.createHorizontalStrut(8));
+            }
+        }
+        g.gridx = 1;
+        g.gridy = row;
+        g.weightx = 1;
+        g.gridwidth = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(bar, g);
+    }
+
+    private void addSeparatorLabel(JPanel panel, GridBagConstraints g, int row, String text) {
+        g.gridx = 0;
+        g.gridy = row;
+        g.gridwidth = 2;
+        g.weightx = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        JLabel note = new JLabel("<html><i>" + text + "</i></html>");
+        note.setBorder(BorderFactory.createEmptyBorder(10, 0, 2, 0));
+        formLabels.add(note);
+        panel.add(note, g);
+        g.gridwidth = 1;
+    }
+
+    private JScrollPane wrapScroll(JComponent inner) {
+        JScrollPane scroll = new JScrollPane(inner);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
+    }
+
+    // ========================================================================
+    // Actions - Account Management
+    // ========================================================================
+
+    private void openAccount() {
+        String type = (String) cboType.getSelectedItem();
+        String name = txtName.getText().trim();
+        String phone = txtPhone.getText().trim();
+        String branch = txtBranch.getText().trim();
+
+        if (!validHolderName(name) || !validPhone(phone) || !validBranch(branch)) {
+            return;
+        }
+        Double amount = parseAmount(txtAmount.getText(),
+                LoanAccount.TYPE.equals(type) ? "loan limit" : "initial balance");
+        if (amount == null) {
+            return;
+        }
+        try {
+            Account account = bank.openAccount(type, name, branch, phone, amount);
+            refreshTable(bank.listAccounts());
+            clearManagementFields();
+            info("Account Created",
+                    "Account opened successfully.\nAccount number: " + account.getAccountNumber());
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private void updatePhone() {
+        String accountNo = txtManageAccountNo.getText().trim();
+        String phone = txtPhone.getText().trim();
+        if (!validAccountNumber(accountNo) || !validPhone(phone)) {
+            return;
+        }
+        try {
+            bank.updatePhone(accountNo, phone);
+            refreshTable(currentRoster());
+            info("Phone Updated", "Phone number updated for " + accountNo + ".");
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private void shiftBranch() {
+        String accountNo = txtManageAccountNo.getText().trim();
+        String branch = txtBranch.getText().trim();
+        if (!validAccountNumber(accountNo) || !validBranch(branch)) {
+            return;
+        }
+        try {
+            bank.shiftBranch(accountNo, branch);
+            refreshTable(currentRoster());
+            info("Branch Updated", "Branch updated for " + accountNo + ".");
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    // ========================================================================
+    // Actions - Transactions
+    // ========================================================================
+
+    private void deposit() {
+        String source = txtSource.getText().trim();
+        if (!validAccountNumber(source)) {
+            return;
+        }
+        Double amount = parseAmount(txtTxnAmount.getText(), "amount");
+        if (amount == null) {
+            return;
+        }
+        try {
+            bank.deposit(source, amount);
+            afterTransaction(source, "Deposit complete.");
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private void withdraw() {
+        String source = txtSource.getText().trim();
+        if (!validAccountNumber(source)) {
+            return;
+        }
+        Double amount = parseAmount(txtTxnAmount.getText(), "amount");
+        if (amount == null) {
+            return;
+        }
+        try {
+            bank.withdraw(source, amount);
+            afterTransaction(source, "Withdrawal complete.");
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private void transfer() {
+        String source = txtSource.getText().trim();
+        String destination = txtDestination.getText().trim();
+        if (!validAccountNumber(source)) {
+            return;
+        }
+        if (!validAccountNumber(destination)) {
+            return;
+        }
+        Double amount = parseAmount(txtTxnAmount.getText(), "amount");
+        if (amount == null) {
+            return;
+        }
+        try {
+            bank.transfer(source, destination, amount);
+            refreshTable(currentRoster());
+            info("Transfer Complete", String.format(
+                    "Transferred %.2f from %s to %s.", amount, source, destination));
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private void afterTransaction(String accountNo, String message) throws BankException {
+        refreshTable(currentRoster());
+        Account account = bank.requireAccount(accountNo);
+        info("Transaction Complete", message
+                + String.format("%nAccount: %s%nNew balance: %.2f",
+                accountNo, account.getBalance()));
+    }
+
+    // ========================================================================
+    // Actions - Display / search
+    // ========================================================================
+
+    private void doSearch() {
+        List<Account> results = bank.search(txtSearch.getText());
+        refreshTable(results);
+        if (results.isEmpty()) {
+            txtSummary.setText("No accounts match \"" + txtSearch.getText().trim() + "\".");
+        }
+    }
+
+    private List<Account> currentRoster() {
+        // Preserve any active search filter after a mutation.
+        return bank.search(txtSearch == null ? "" : txtSearch.getText());
+    }
+
+    private void updateSummaryForSelection() {
+        int row = accountTable.getSelectedRow();
+        if (row < 0) {
+            return;
+        }
+        int modelRow = accountTable.convertRowIndexToModel(row);
+        String accountNo = String.valueOf(tableModel.getValueAt(modelRow, 0));
+        try {
+            txtSummary.setText(summaryOf(bank.requireAccount(accountNo)));
+            txtSummary.setCaretPosition(0);
+        } catch (BankException ignored) {
+            // selection out of sync; ignore
+        }
+    }
+
+    private void showSelectedSummary() {
+        int row = accountTable.getSelectedRow();
+        if (row < 0) {
+            error("Select an account in the table first.");
+            return;
+        }
+        int modelRow = accountTable.convertRowIndexToModel(row);
+        String accountNo = String.valueOf(tableModel.getValueAt(modelRow, 0));
+        try {
+            info("Account Summary", summaryOf(bank.requireAccount(accountNo)));
+        } catch (BankException e) {
+            error(e.getMessage());
+        }
+    }
+
+    private String summaryOf(Account account) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Account number : ").append(account.getAccountNumber()).append('\n');
+        sb.append("Type           : ").append(account.getType()).append('\n');
+        sb.append("Holder name    : ").append(account.getAccountHolderName()).append('\n');
+        sb.append("Branch         : ").append(account.getBranch()).append('\n');
+        sb.append("Phone          : ").append(account.getPhone()).append('\n');
+        sb.append(String.format("Balance        : %.2f%n", account.getBalance()));
+        if (account instanceof LoanAccount loan) {
+            sb.append(String.format("Loan limit     : %.2f%n", loan.getLoanLimit()));
+            sb.append(String.format("Amount due     : %.2f%n", loan.getAmountDue()));
+            sb.append(String.format("Borrowable now : %.2f", loan.withdrawableBalance()));
+        } else {
+            sb.append(String.format("Withdrawable   : %.2f", account.withdrawableBalance()));
+        }
+        return sb.toString();
+    }
+
+    // ========================================================================
+    // Validation (regex rules + JOptionPane alerts)
+    // ========================================================================
+
+    private boolean validHolderName(String value) {
+        if (Validators.isValidHolderName(value)) {
+            return true;
+        }
+        alert(Validators.HOLDER_NAME_RULE);
+        return false;
+    }
+
+    private boolean validPhone(String value) {
+        if (Validators.isValidPhone(value)) {
+            return true;
+        }
+        alert(Validators.PHONE_RULE);
+        return false;
+    }
+
+    private boolean validBranch(String value) {
+        if (Validators.isValidBranchName(value)) {
+            return true;
+        }
+        alert(Validators.BRANCH_NAME_RULE);
+        return false;
+    }
+
+    private boolean validAccountNumber(String value) {
+        if (Validators.isValidAccountNumber(value)) {
+            return true;
+        }
+        alert(Validators.ACCOUNT_NUMBER_RULE);
+        return false;
+    }
+
+    /** Parses a positive monetary amount, alerting via JOptionPane on failure. */
+    private Double parseAmount(String text, String label) {
+        if (text == null || text.trim().isEmpty()) {
+            alert("Please enter " + label + ".");
+            return null;
+        }
+        double value;
+        try {
+            value = Double.parseDouble(text.trim());
+        } catch (NumberFormatException e) {
+            alert("'" + text.trim() + "' is not a valid " + label + ". Enter a number.");
+            return null;
+        }
+        if (!Double.isFinite(value) || value < 0) {
+            alert("The " + label + " must be a non-negative number.");
+            return null;
+        }
+        return value;
+    }
+
+    // ========================================================================
+    // Table + small helpers
+    // ========================================================================
+
+    private void refreshTable(List<Account> accounts) {
+        tableModel.setRowCount(0);
+        for (Account account : accounts) {
+            String loanLimit = "-";
+            String amountDue = "-";
+            if (account instanceof LoanAccount loan) {
+                loanLimit = String.format("%.2f", loan.getLoanLimit());
+                amountDue = String.format("%.2f", loan.getAmountDue());
+            }
+            tableModel.addRow(new Object[]{
+                    account.getAccountNumber(),
+                    account.getType(),
+                    account.getAccountHolderName(),
+                    account.getBranch(),
+                    account.getPhone(),
+                    String.format("%.2f", account.getBalance()),
+                    loanLimit,
+                    amountDue
+            });
+        }
+    }
+
+    private void clearManagementFields() {
+        txtName.setText("");
+        txtPhone.setText("");
+        txtBranch.setText("");
+        txtAmount.setText("");
+    }
+
+    private void alert(String message) {
+        JOptionPane.showMessageDialog(this, message, "Validation Error", JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void info(String title, String message) {
+        JOptionPane.showMessageDialog(this, message, title, JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void error(String message) {
+        JOptionPane.showMessageDialog(this, message, "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    // ========================================================================
+    // Theme handling (kept from the project's themed chrome)
+    // ========================================================================
+
     private void installDefaultTheme() {
         try {
             DEFAULT_THEME.apply();
             currentTheme = DEFAULT_THEME;
             lastGoodTheme = DEFAULT_THEME;
         } catch (Exception e) {
-            // Fall back to the cross-platform L&F, which is always available.
             try {
                 SwingTheme.METAL.apply();
                 currentTheme = SwingTheme.METAL;
                 lastGoodTheme = SwingTheme.METAL;
             } catch (Exception ignored) {
-                // Keep whatever L&F the JVM started with.
+                // keep whatever L&F the JVM started with
             }
         }
     }
 
-    /**
-     * Switches to the requested theme. If applying it fails immediately we
-     * revert here; if it fails later during painting, {@link #handleEventThreadError}
-     * performs the recovery. Either way the user sees a clear message.
-     */
     private void applyTheme(SwingTheme theme) {
         if (theme == currentTheme) {
             return;
@@ -244,27 +717,16 @@ public class BankAppGUI extends JFrame {
         try {
             theme.apply();
             currentTheme = theme;
-            // System-wide: refresh every open window (this frame plus any open
-            // dialogs/pop-ups) so the whole application adopts the new theme.
             for (Window window : Window.getWindows()) {
                 SwingUtilities.updateComponentTreeUI(window);
             }
             applyChrome(theme);
-            // Only trust the new theme once it has survived a short settling
-            // period of real repaints. A broken Look&Feel throws during those
-            // repaints first, so lastGoodTheme is not advanced prematurely.
             scheduleThemePromotion(theme);
-            showInfo("Theme", "Theme changed to " + theme.getLabel() + ".");
         } catch (Throwable e) {
             revertTheme(previousGood, theme, describeThrowable(e));
         }
     }
 
-    /**
-     * Recolours every custom-painted component (title bar, window border,
-     * side panel, table, header) to match the theme
-     * palette, so the whole window - not just the Swing widgets - is themed.
-     */
     private void applyChrome(SwingTheme theme) {
         SwingTheme.Palette p = theme.palette();
 
@@ -274,39 +736,38 @@ public class BankAppGUI extends JFrame {
         titleBar.applyPalette(p);
         titleBar.applyFont(theme.chromeFont(Font.BOLD, 14f));
 
-        toolbarPanel.setBackground(p.background());
-
         titleLabel.setForeground(p.accent());
         titleLabel.setFont(theme.headingFont(Font.BOLD, 26f));
         themeSelector.applyPalette(p);
         themeSelector.setSelected(theme);
 
-        applyTableChrome(theme);
+        for (JLabel label : formLabels) {
+            label.setForeground(p.foreground());
+        }
 
+        applyTableChrome(theme);
         repaint();
     }
 
-    /** Gives the accounts grid a stronger cyberpunk dashboard treatment. */
     private void applyTableChrome(SwingTheme theme) {
         SwingTheme.Palette p = theme.palette();
-        Color rowA = theme == SwingTheme.CYBERPUNK ? new Color(0x0A0A18) : p.background();
-        Color rowB = theme == SwingTheme.CYBERPUNK ? new Color(0x111128) : p.surface();
-        Color grid = theme == SwingTheme.CYBERPUNK ? new Color(0x321A55) : p.surface();
-        Color selected = theme == SwingTheme.CYBERPUNK ? new Color(0x4A103A) : p.accent();
+        boolean cyber = theme == SwingTheme.CYBERPUNK;
+        Color rowA = cyber ? new Color(0x0A0A18) : p.background();
+        Color rowB = cyber ? new Color(0x111128) : p.surface();
+        Color grid = cyber ? new Color(0x321A55) : p.surface();
+        Color selected = cyber ? new Color(0x4A103A) : p.accent();
 
         accountTable.setBackground(rowA);
         accountTable.setForeground(p.foreground());
         accountTable.setGridColor(grid);
         accountTable.setSelectionBackground(selected);
-        accountTable.setSelectionForeground(theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.accentText());
+        accountTable.setSelectionForeground(cyber ? new Color(0x00F0FF) : p.accentText());
         accountTable.setFont(theme.chromeFont(Font.PLAIN, 13f));
-        accountTable.setRowHeight(theme == SwingTheme.CYBERPUNK ? 34 : 28);
 
         JTableHeader header = accountTable.getTableHeader();
-        header.setBackground(theme == SwingTheme.CYBERPUNK ? new Color(0x1C0C30) : p.surface());
-        header.setForeground(theme == SwingTheme.CYBERPUNK ? new Color(0xFF2A6D) : p.accent());
+        header.setBackground(cyber ? new Color(0x1C0C30) : p.surface());
+        header.setForeground(cyber ? new Color(0xFF2A6D) : p.accent());
         header.setFont(theme.headingFont(Font.BOLD, 12f));
-        header.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, p.accent()));
 
         accountTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
@@ -317,25 +778,20 @@ public class BankAppGUI extends JFrame {
                 setHorizontalAlignment(column == 2 || column == 3 ? SwingConstants.LEFT : SwingConstants.CENTER);
                 if (!isSelected) {
                     c.setBackground(row % 2 == 0 ? rowA : rowB);
-                    c.setForeground(column == 6 && theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.foreground());
-                } else {
-                    c.setBackground(selected);
-                    c.setForeground(theme == SwingTheme.CYBERPUNK ? new Color(0x00F0FF) : p.accentText());
+                    c.setForeground(p.foreground());
                 }
-                setFont(theme.chromeFont(column == 0 || column == 6 ? Font.BOLD : Font.PLAIN, 13f));
                 return c;
             }
         });
 
+        if (txtSummary != null) {
+            txtSummary.setBackground(rowA);
+            txtSummary.setForeground(p.foreground());
+            txtSummary.setFont(theme.chromeFont(Font.PLAIN, 13f));
+        }
         tableScroll.getViewport().setBackground(rowA);
-        tableScroll.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(p.accent(), 2),
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createEmptyBorder(8, 8, 8, 8), "NEON ACCOUNT LEDGER", 0, 0,
-                        theme.headingFont(Font.BOLD, 13f), p.accent())));
     }
 
-    /** After a brief delay with no paint failures, accept the theme as safe. */
     private void scheduleThemePromotion(SwingTheme theme) {
         if (promoteTimer != null) {
             promoteTimer.stop();
@@ -345,26 +801,20 @@ public class BankAppGUI extends JFrame {
         promoteTimer.start();
     }
 
-    /** Called after a successful repaint to remember a theme as safe. */
     private void markThemeAsGood(SwingTheme theme) {
         if (currentTheme == theme && !recoveringTheme) {
             lastGoodTheme = theme;
         }
     }
 
-    /**
-     * Handles any exception that escaped to the event thread. A failure that
-     * comes from a Look&Feel (painting) triggers a revert to the last working
-     * theme; anything else is reported as an unexpected error.
-     */
     private void handleEventThreadError(Throwable error) {
         if (recoveringTheme) {
-            return; // already recovering; swallow follow-up paint errors
+            return;
         }
         if (isLookAndFeelError(error) && currentTheme != lastGoodTheme) {
             recoveringTheme = true;
             if (promoteTimer != null) {
-                promoteTimer.stop(); // never promote the broken theme
+                promoteTimer.stop();
             }
             SwingTheme broken = currentTheme;
             try {
@@ -373,20 +823,16 @@ public class BankAppGUI extends JFrame {
                 recoveringTheme = false;
             }
         } else if (!isLookAndFeelError(error)) {
-            showError("An unexpected error occurred:\n" + describeThrowable(error));
+            error("An unexpected error occurred:\n" + describeThrowable(error));
         }
-        // A look&feel error while we are already on the last-good theme is
-        // a transient repaint glitch from the failed switch; safe to ignore.
     }
 
-    /** Restores a known-good theme and tells the user what went wrong. */
     private void revertTheme(SwingTheme target, SwingTheme broken, String reason) {
         SwingTheme restored = target;
         try {
             target.apply();
             currentTheme = target;
         } catch (Throwable e) {
-            // Last resort: the cross-platform L&F never fails to load.
             try {
                 SwingTheme.METAL.apply();
                 restored = SwingTheme.METAL;
@@ -400,16 +846,13 @@ public class BankAppGUI extends JFrame {
             SwingUtilities.updateComponentTreeUI(this);
             applyChrome(currentTheme);
         } catch (Throwable ignored) {
-            // updating the tree should be safe now; ignore if not
+            // ignore
         }
-        // Show the dialog after we have fully unwound from the failing paint
-        // dispatch, so we never start a nested modal loop inside the handler.
         final String restoredLabel = restored.getLabel();
-        SwingUtilities.invokeLater(() -> MessageDialog.show(this, "Theme Not Available",
-                "The '" + broken.getLabel() + "' theme is not supported on this system "
-                        + "and could not be displayed.\n\nReverted to the '" + restoredLabel
-                        + "' theme.\n\nDetails: " + reason,
-                MessageDialog.Kind.WARNING));
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                "The '" + broken.getLabel() + "' theme is not supported on this system.\n"
+                        + "Reverted to '" + restoredLabel + "'.\n\nDetails: " + reason,
+                "Theme Not Available", JOptionPane.WARNING_MESSAGE));
     }
 
     private boolean isLookAndFeelError(Throwable error) {
@@ -424,283 +867,6 @@ public class BankAppGUI extends JFrame {
         return false;
     }
 
-    // ---------- actions (each opens a pop-up form) ----------
-
-    private void openAccount() {
-        FormDialog form = new FormDialog(this, "Open Account");
-        JComboBox<String> type = form.addComboBox("Account type:", ACCOUNT_TYPES);
-        JTextField name = form.addTextField("Customer name:");
-        JTextField branch = form.addTextField("Branch:");
-        JTextField phone = form.addTextField("Phone:");
-        JTextField opening = form.addTextField("Opening balance / loan principal:");
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String customer = name.getText().trim();
-            if (customer.isEmpty()) {
-                throw new BankException("Customer name cannot be empty.");
-            }
-            String branchName = branch.getText().trim();
-            if (branchName.isEmpty()) {
-                throw new BankException("Branch cannot be empty.");
-            }
-            String phoneNum = phone.getText().trim();
-            if (phoneNum.isEmpty()) {
-                throw new BankException("Phone number cannot be empty.");
-            }
-            double balance = parseAmount(opening.getText());
-            Account account = bank.openAccount((String) type.getSelectedItem(), customer, branchName, phoneNum, balance);
-            refreshTable();
-            showInfo("Account Created", "Account created: " + account.getAccountNumber());
-        } catch (BankException | NumberFormatException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private void deposit() {
-        if (ensureAccountsExist()) {
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Deposit");
-        JComboBox<String> account = form.addComboBox("Account:", accountChoices());
-        JTextField amount = form.addTextField("Amount to deposit:");
-        preselectAccount(account);
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String number = accountNumberOf(account);
-            double value = parseAmount(amount.getText());
-            bank.deposit(number, value);
-            refreshTable();
-            showInfo("Deposit Complete", String.format("Deposited %.2f.%nNew balance: %.2f",
-                    value, bank.requireAccount(number).getBalance()));
-        } catch (BankException | NumberFormatException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private void withdraw() {
-        if (ensureAccountsExist()) {
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Withdraw");
-        JComboBox<String> account = form.addComboBox("Account:", accountChoices());
-        JTextField amount = form.addTextField("Amount to withdraw:");
-        preselectAccount(account);
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String number = accountNumberOf(account);
-            double value = parseAmount(amount.getText());
-            bank.withdraw(number, value);
-            refreshTable();
-            showInfo("Withdrawal Complete", String.format("Withdrew %.2f.%nNew balance: %.2f",
-                    value, bank.requireAccount(number).getBalance()));
-        } catch (BankException | NumberFormatException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private void transfer() {
-        if (bank.listAccounts().size() < 2) {
-            showError("You need at least two accounts to make a transfer.");
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Transfer");
-        JComboBox<String> from = form.addComboBox("From account:", accountChoices());
-        JComboBox<String> to = form.addComboBox("To account:", accountChoices());
-        JTextField amount = form.addTextField("Amount to transfer:");
-        preselectAccount(from);
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String fromNumber = accountNumberOf(from);
-            String toNumber = accountNumberOf(to);
-            double value = parseAmount(amount.getText());
-            bank.transfer(fromNumber, toNumber, value);
-            refreshTable();
-            showInfo("Transfer Complete", String.format("Transferred %.2f from %s to %s.", value, fromNumber, toNumber));
-        } catch (BankException | NumberFormatException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private void checkBalance() {
-        if (ensureAccountsExist()) {
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Check Balance");
-        JComboBox<String> account = form.addComboBox("Account:", accountChoices());
-        preselectAccount(account);
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String number = accountNumberOf(account);
-            Account acc = bank.requireAccount(number);
-            String message = String.format(
-                    "Account: %s%nType: %s%nCustomer: %s%nBranch: %s%nPhone: %s%nBalance: %.2f%nWithdrawable now: %.2f",
-                    acc.getAccountNumber(), acc.getType(), acc.getAccountHolderName(),
-                    acc.getBranch(), acc.getPhone(), acc.getBalance(), acc.withdrawableBalance());
-            MessageDialog.show(this, "Balance", message, MessageDialog.Kind.INFO);
-        } catch (BankException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private void updateContact() {
-        if (ensureAccountsExist()) {
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Update Contact / Branch");
-        JComboBox<String> account = form.addComboBox("Account:", accountChoices());
-        JTextField branch = form.addTextField("New branch:");
-        JTextField phone = form.addTextField("New phone:");
-        preselectAccount(account);
-        populateContactFields(account, branch, phone);
-        account.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                populateContactFields(account, branch, phone);
-            }
-        });
-        if (!form.showDialog()) {
-            return;
-        }
-        try {
-            String number = accountNumberOf(account);
-            bank.updateAccountDetails(number, branch.getText(), phone.getText());
-            refreshTable();
-            showInfo("Details Updated", "Updated details for " + number + ".");
-        } catch (BankException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    /** Fills editable contact fields with the currently selected account's existing details. */
-    private void populateContactFields(JComboBox<String> account, JTextField branch, JTextField phone) {
-        try {
-            Account selected = bank.requireAccount(accountNumberOf(account));
-            branch.setText(selected.getBranch());
-            phone.setText(selected.getPhone());
-        } catch (BankException e) {
-            branch.setText("");
-            phone.setText("");
-        }
-    }
-
-    private void closeAccount() {
-        if (ensureAccountsExist()) {
-            return;
-        }
-        FormDialog form = new FormDialog(this, "Close Account");
-        JComboBox<String> account = form.addComboBox("Account:", accountChoices());
-        preselectAccount(account);
-        if (!form.showDialog()) {
-            return;
-        }
-        String number = accountNumberOf(account);
-        int confirm = JOptionPane.showConfirmDialog(this,
-                "Close account " + number + "? This is only allowed for fully settled zero-balance accounts.",
-                "Confirm Close Account", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (confirm != JOptionPane.YES_OPTION) {
-            return;
-        }
-        try {
-            bank.deleteAccount(number);
-            refreshTable();
-            showInfo("Account Closed", "Closed account " + number + ".");
-        } catch (BankException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    // ---------- shared helpers ----------
-
-    private void refreshTable() {
-        tableModel.setRowCount(0);
-        List<Account> accounts = bank.listAccounts();
-        for (Account account : accounts) {
-            tableModel.addRow(new Object[]{
-                    account.getAccountNumber(),
-                    account.getType(),
-                    account.getAccountHolderName(),
-                    account.getBranch(),
-                    account.getPhone(),
-                    String.format("%.2f", account.getBalance()),
-                    describeSpecialAttribute(account)
-            });
-        }
-    }
-
-    private String describeSpecialAttribute(Account account) {
-        if (account instanceof SavingsAccount) {
-            return "Interest 1.00%";
-        } else if (account instanceof LoanAccount loan) {
-            return String.format("Due: %.2f / Limit: %.2f", loan.getAmountDue(), loan.getLoanLimit());
-        }
-        return "-";
-    }
-
-    /** Builds the labelled choices ("AC00001 - Alice (SAVINGS)") for an account dropdown. */
-    private String[] accountChoices() {
-        List<Account> accounts = bank.listAccounts();
-        String[] choices = new String[accounts.size()];
-        for (int i = 0; i < accounts.size(); i++) {
-            Account a = accounts.get(i);
-            choices[i] = String.format("%s - %s (%s)",
-                    a.getAccountNumber(), a.getAccountHolderName(), a.getType());
-        }
-        return choices;
-    }
-
-    /** Extracts the account number from a "AC00001 - Name (TYPE)" dropdown item. */
-    private String accountNumberOf(JComboBox<String> combo) {
-        Object selected = combo.getSelectedItem();
-        String text = selected == null ? "" : selected.toString();
-        int dash = text.indexOf(" - ");
-        return (dash >= 0 ? text.substring(0, dash) : text).trim();
-    }
-
-    /** Selects the table-highlighted account in the dropdown, if one is highlighted. */
-    private void preselectAccount(JComboBox<String> combo) {
-        int row = accountTable.getSelectedRow();
-        if (row < 0) {
-            return;
-        }
-        int modelRow = accountTable.convertRowIndexToModel(row);
-        String number = String.valueOf(tableModel.getValueAt(modelRow, 0));
-        for (int i = 0; i < combo.getItemCount(); i++) {
-            if (combo.getItemAt(i).startsWith(number + " ")) {
-                combo.setSelectedIndex(i);
-                return;
-            }
-        }
-    }
-
-    /** Warns and returns true when there are no accounts to act on yet. */
-    private boolean ensureAccountsExist() {
-        if (bank.listAccounts().isEmpty()) {
-            showError("There are no accounts yet. Please open an account first.");
-            return true;
-        }
-        return false;
-    }
-
-    private double parseAmount(String text) {
-        if (text == null || text.trim().isEmpty()) {
-            throw new NumberFormatException("Please enter a valid amount.");
-        }
-        try {
-            return Double.parseDouble(text.trim());
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("'" + text.trim() + "' is not a valid number.");
-        }
-    }
-
     private String describeThrowable(Throwable t) {
         String message = t.getMessage();
         if (message == null || message.isBlank()) {
@@ -709,31 +875,18 @@ public class BankAppGUI extends JFrame {
         return message;
     }
 
-    private void showInfo(String title, String message) {
-        MessageDialog.show(this, title, message, MessageDialog.Kind.INFO);
-    }
-
-    private void showError(String message) {
-        MessageDialog.show(this, "Error", message, MessageDialog.Kind.ERROR);
-    }
-
-    // ---------- entry point ----------
+    // ========================================================================
+    // Stand-alone launcher (delegates to Main in normal use)
+    // ========================================================================
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
-                BankManagement bankManagement = new BankManagement(Path.of("data"));
-                BankOperations bank = new BankOperations(bankManagement);
-                new BankAppGUI(bank).setVisible(true);
-            } catch (DataStoreException e) {
-                JOptionPane.showMessageDialog(null,
-                        "Could not start the bank: " + e.getMessage(),
-                        "Startup Error", JOptionPane.ERROR_MESSAGE);
+                com.amarbank.Main.main(args);
             } catch (Throwable t) {
                 StringWriter sw = new StringWriter();
                 t.printStackTrace(new PrintWriter(sw));
-                JOptionPane.showMessageDialog(null,
-                        "The application failed to start:\n" + t,
+                JOptionPane.showMessageDialog(null, "The application failed to start:\n" + t,
                         "Fatal Error", JOptionPane.ERROR_MESSAGE);
             }
         });

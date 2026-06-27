@@ -11,18 +11,26 @@
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <!--
+        Permanent local storage uses a plain CSV file (see CsvAccountStore),
+        which is the storage format required by the assignment and needs only
+        the standard JDK.
 
-
+        A SQLite-backed store (SqliteAccountStore) is provided as an OPTIONAL
+        improvement. The driver below is marked <optional> so the project still
+        builds and runs on CSV alone; when the driver is present on the
+        classpath the application automatically prefers SQLite.
+    -->
     <dependencies>
-
         <dependency>
-            <groupId>dev.aga.sqlite</groupId>
+            <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.49.1.0</version>
+            <optional>true</optional>
         </dependency>
-
     </dependencies>
 
     <build>
@@ -31,6 +39,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <!--
+                    Pinned to a version that resolves offline. The project's
+                    verification harnesses (SelfTest / GuiSmokeTest) are plain
+                    main() programs, not JUnit tests, so surefire has nothing to
+                    run during the build and is configured to skip cleanly.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

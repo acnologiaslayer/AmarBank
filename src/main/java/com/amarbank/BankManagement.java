@@ -1,178 +1,211 @@
 package com.amarbank;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.List;
 
+import com.amarbank.exception.AccountNotFoundException;
+import com.amarbank.exception.BankException;
 import com.amarbank.exception.DataStoreException;
+import com.amarbank.exception.DuplicateAccountException;
+import com.amarbank.exception.InvalidAmountException;
+import com.amarbank.storage.AccountStore;
 
+/**
+ * Controller class (per spec).
+ *
+ * <p>Holds an {@link ArrayList}{@code <Account>} of all active accounts and is
+ * responsible for all banking logic plus reading/writing the permanent store.
+ * The store is pluggable ({@link AccountStore}); by default it is a CSV file,
+ * with an optional SQLite backend.</p>
+ *
+ * <p>The in-memory list is the single source of truth during a session; every
+ * mutating operation persists the whole roster afterwards, so the file/database
+ * on disk always reflects the latest state.</p>
+ */
 public class BankManagement {
-    // controller class to manage accounts and operations. contains arraylist<account> to store accounts and methods to perform operations on accounts and handles logic for reading and writing to db (sqlite)
-   private static final String TABLE_NAME = "accounts";
 
-    private final String url;
+    /** All active accounts (required by the spec). */
+    private final ArrayList<Account> accounts;
 
-    public BankManagement(Path dataDirectory) throws DataStoreException {
-        Path databaseFile = dataDirectory.resolve("bank.db");
-        this.url = "jdbc:sqlite:" + databaseFile;
-        try {
-            Files.createDirectories(dataDirectory);
-        } catch (IOException e) {
-            throw new DataStoreException("Could not create data directory " + dataDirectory, e);
-        }
-        createTable();
-    }   
+    private final AccountStore store;
+    private int nextSequence;
 
-     private void createTable() throws DataStoreException {
-        String sql = "CREATE TABLE IF NOT EXISTS " + TABLE_NAME + " (\n"
-                + " account_number TEXT PRIMARY KEY,\n"
-                + " type           TEXT NOT NULL,\n"
-                + " account_holder_name  TEXT NOT NULL,\n"
-                + " branch        TEXT NOT NULL,\n"
-                + " phone        TEXT NOT NULL,\n"
-                + " balance        REAL NOT NULL,\n"
-                + "loan_limit        REAL,\n"
-                + "amount_due        REAL\n"
-                + ");";
-        try (Connection conn = connect();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not initialise the database", e);
-        }
+    public BankManagement(AccountStore store) throws DataStoreException {
+        this.store = store;
+        this.accounts = new ArrayList<>(store.loadAll());
+        this.nextSequence = highestExistingSequence() + 1;
     }
 
-    public void addAccount(Account account) throws DataStoreException {
-        String sql = "INSERT INTO " + TABLE_NAME + "(account_number, type, account_holder_name, branch, phone, balance, loan_limit, amount_due) VALUES(?,?,?,?,?,?,?,?)";
-        try (Connection conn = connect();
-             java.sql.PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, account.getAccountNumber());
-            pstmt.setString(2, account.getType());
-            pstmt.setString(3, account.getAccountHolderName());
-            pstmt.setString(4, account.getBranch());
-            pstmt.setString(5, account.getPhone());
-            pstmt.setDouble(6, account.getBalance());
-            if (account instanceof LoanAccount loanAccount) {
-                pstmt.setDouble(7, loanAccount.getLoanLimit());
-                pstmt.setDouble(8, loanAccount.getAmountDue());
-            } else {
-                pstmt.setNull(7, java.sql.Types.DOUBLE);
-                pstmt.setNull(8, java.sql.Types.DOUBLE);
-            }
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not add account to the database", e);
+    // ---------- account creation ----------
+
+    /**
+     * Opens a new account, assigns it the next {@code AMB-XXXXX} number, stores
+     * it and persists the roster.
+     *
+     * @param type           {@code "SAVINGS"} or {@code "LOAN"}
+     * @param name           holder name (validated against the spec rules)
+     * @param branch         branch name (validated)
+     * @param phone          phone number (validated)
+     * @param openingValue   opening balance (savings) or loan principal/limit (loan)
+     */
+    public Account openAccount(String type, String name, String branch, String phone,
+                               double openingValue) throws BankException {
+        validateFields(name, branch, phone);
+        if (!Double.isFinite(openingValue) || openingValue < 0) {
+            throw new InvalidAmountException("Opening amount cannot be negative.");
         }
-    }
 
-    public Account getAccount(String accountNumber) throws DataStoreException {
-        String sql = "SELECT * FROM " + TABLE_NAME + " WHERE account_number = ?";
-        try (Connection conn = connect();
-             java.sql.PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, accountNumber);
-            try (java.sql.ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    return toAccount(
-                            rs.getString("account_number"),
-                            rs.getString("type"),
-                            rs.getString("account_holder_name"),
-                            rs.getString("branch"),
-                            rs.getString("phone"),
-                            rs.getDouble("balance"),
-                            nullableDouble(rs, "loan_limit"),
-                            nullableDouble(rs, "amount_due")
-                    );
-                }
-            }
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not retrieve account from the database", e);
+        String number = nextAccountNumber();
+        if (findAccount(number) != null) {
+            throw new DuplicateAccountException(number);
         }
-        return null; // or throw an exception if account not found
-    }
 
-    public void updateAccount(Account account) throws DataStoreException {
-        String sql = "UPDATE " + TABLE_NAME + " SET type = ?, account_holder_name = ?, branch = ?, phone = ?, balance = ?, loan_limit = ?, amount_due = ? WHERE account_number = ?";
-        try (Connection conn = connect();
-             java.sql.PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, account.getType());
-            pstmt.setString(2, account.getAccountHolderName());
-            pstmt.setString(3, account.getBranch());
-            pstmt.setString(4, account.getPhone());
-            pstmt.setDouble(5, account.getBalance());
-            if (account instanceof LoanAccount loanAccount) {
-                pstmt.setDouble(6, loanAccount.getLoanLimit());
-                pstmt.setDouble(7, loanAccount.getAmountDue());
-            } else {
-                pstmt.setNull(6, java.sql.Types.DOUBLE);
-                pstmt.setNull(7, java.sql.Types.DOUBLE);
-            }
-            pstmt.setString(8, account.getAccountNumber());
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not update account in the database", e);
-        }
-    }
-
-    public ArrayList<Account> loadAccounts() throws DataStoreException {
-        String sql = "SELECT * FROM " + TABLE_NAME + " ORDER BY account_number";
-        ArrayList<Account> accounts = new ArrayList<>();
-        try (Connection conn = connect();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                accounts.add(toAccount(
-                        rs.getString("account_number"),
-                        rs.getString("type"),
-                        rs.getString("account_holder_name"),
-                        rs.getString("branch"),
-                        rs.getString("phone"),
-                        rs.getDouble("balance"),
-                        nullableDouble(rs, "loan_limit"),
-                        nullableDouble(rs, "amount_due")
-                ));
-            }
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not load accounts from the database", e);
-        }
-        return accounts;
-    }
-
-    public void deleteAccount(String accountNumber) throws DataStoreException {
-        String sql = "DELETE FROM " + TABLE_NAME + " WHERE account_number = ?";
-        try (Connection conn = connect();
-             java.sql.PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, accountNumber);
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            throw new DataStoreException("Could not delete account from the database", e);
-        }
-    }
-
-    private Connection connect() throws SQLException {
-        return DriverManager.getConnection(url);
-    }
-
-    private Account toAccount(String accountNumber, String type, String name, String branch, String phone, double balance, Double loanLimit, Double amountDue)
-            throws DataStoreException {
-        if ("SAVINGS".equalsIgnoreCase(type)) {
-            return new SavingsAccount(accountNumber, type, name, branch, phone, balance, 0.01);
-        } else if ("LOAN".equalsIgnoreCase(type)) {
-            double restoredAmountDue = amountDue == null ? Math.max(0.0, balance) : amountDue;
-            double restoredLimit = loanLimit == null ? Math.max(10000.0, restoredAmountDue) : loanLimit;
-            return new LoanAccount(accountNumber, type, name, branch, phone, balance, restoredLimit, restoredAmountDue);
+        Account account;
+        if (SavingsAccount.TYPE.equalsIgnoreCase(type)) {
+            account = new SavingsAccount(number, name, branch, phone, openingValue);
+        } else if (LoanAccount.TYPE.equalsIgnoreCase(type)) {
+            // For a loan account the opening figure is the loan limit. No money
+            // is owed or disbursed until the customer actually withdraws.
+            account = new LoanAccount(number, name, branch, phone, 0.0, openingValue, 0.0);
         } else {
-            throw new DataStoreException("Unknown account type: " + type, null);
+            throw new BankException("Unknown account type: " + type);
+        }
+
+        accounts.add(account);
+        persist();
+        return account;
+    }
+
+    // ---------- transactions ----------
+
+    public void deposit(String accountNumber, double amount) throws BankException {
+        Account account = requireAccount(accountNumber);
+        account.deposit(amount);
+        persist();
+    }
+
+    public void withdraw(String accountNumber, double amount) throws BankException {
+        Account account = requireAccount(accountNumber);
+        account.withdraw(amount);
+        persist();
+    }
+
+    /** Transfers funds between two accounts using {@link Account#transferFunds}. */
+    public void transfer(String fromNumber, String toNumber, double amount) throws BankException {
+        Account from = requireAccount(fromNumber);
+        Account to = requireAccount(toNumber);
+        from.transferFunds(to, amount);
+        persist();
+    }
+
+    // ---------- modifications ----------
+
+    /** Updates a phone number (validated) and persists. */
+    public void updatePhone(String accountNumber, String newPhone) throws BankException {
+        if (!Validators.isValidPhone(newPhone)) {
+            throw new BankException(Validators.PHONE_RULE);
+        }
+        Account account = requireAccount(accountNumber);
+        account.updatePhone(newPhone.trim());
+        persist();
+    }
+
+    /** Shifts an account to a new branch (validated) and persists. */
+    public void shiftBranch(String accountNumber, String newBranch) throws BankException {
+        if (!Validators.isValidBranchName(newBranch)) {
+            throw new BankException(Validators.BRANCH_NAME_RULE);
+        }
+        Account account = requireAccount(accountNumber);
+        account.shiftBranch(newBranch.trim());
+        persist();
+    }
+
+    // ---------- queries ----------
+
+    /** Returns the account or throws if the number is unknown. */
+    public Account requireAccount(String accountNumber) throws AccountNotFoundException {
+        Account account = findAccount(accountNumber);
+        if (account == null) {
+            throw new AccountNotFoundException(accountNumber);
+        }
+        return account;
+    }
+
+    /** Returns every account (creation order) for the display table. */
+    public List<Account> listAccounts() {
+        return new ArrayList<>(accounts);
+    }
+
+    /**
+     * Returns accounts whose number, holder name, branch, phone or type
+     * contains {@code query} (case-insensitive). A blank query returns all.
+     * Backs the "searchable roster" requirement of the Display Panel.
+     */
+    public List<Account> search(String query) {
+        if (query == null || query.isBlank()) {
+            return listAccounts();
+        }
+        String needle = query.trim().toLowerCase();
+        List<Account> results = new ArrayList<>();
+        for (Account a : accounts) {
+            if (a.getAccountNumber().toLowerCase().contains(needle)
+                    || a.getAccountHolderName().toLowerCase().contains(needle)
+                    || a.getBranch().toLowerCase().contains(needle)
+                    || a.getPhone().toLowerCase().contains(needle)
+                    || a.getType().toLowerCase().contains(needle)) {
+                results.add(a);
+            }
+        }
+        return results;
+    }
+
+    /** Where the data is being stored (for the status bar). */
+    public String storageDescription() {
+        return store.describe();
+    }
+
+    // ---------- internals ----------
+
+    private void validateFields(String name, String branch, String phone) throws BankException {
+        if (!Validators.isValidHolderName(name)) {
+            throw new BankException(Validators.HOLDER_NAME_RULE);
+        }
+        if (!Validators.isValidBranchName(branch)) {
+            throw new BankException(Validators.BRANCH_NAME_RULE);
+        }
+        if (!Validators.isValidPhone(phone)) {
+            throw new BankException(Validators.PHONE_RULE);
         }
     }
 
-    private Double nullableDouble(ResultSet rs, String column) throws SQLException {
-        double value = rs.getDouble(column);
-        return rs.wasNull() ? null : value;
+    private Account findAccount(String accountNumber) {
+        for (Account account : accounts) {
+            if (account.getAccountNumber().equals(accountNumber)) {
+                return account;
+            }
+        }
+        return null;
+    }
+
+    /** Writes the whole roster to permanent storage (CSV file by default). */
+    private void persist() throws DataStoreException {
+        store.saveAll(accounts);
+    }
+
+    private String nextAccountNumber() {
+        return String.format("AMB-%05d", nextSequence++);
+    }
+
+    /** Largest 5-digit suffix already in use, so new numbers never collide. */
+    private int highestExistingSequence() {
+        int highest = 0;
+        for (Account account : accounts) {
+            String number = account.getAccountNumber();
+            if (Validators.isValidAccountNumber(number)) {
+                int value = Integer.parseInt(number.substring(4));
+                highest = Math.max(highest, value);
+            }
+        }
+        return highest;
     }
 }
